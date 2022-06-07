@@ -61,12 +61,17 @@ wss.on('connection', function connection(ws) {
                 case 'GetProfile':
                     break;
                 case 'SendMessage':
+                    wss.auth(data.data).then((auth) => {
+                        if(auth === null) { ws.terminate(); return; }
+                        channel.users[auth.getId].client.setActivity();
+                        // TODO: Send Message
+                    });
                     break;
                 case 'JoinChannel':
                     wss.auth(data.data).then((user) => {
                         if(user === null) { ws.terminate(); return; }
-                        user.setActivity();
                         channel.users[user.getId] = {socket: ws, client: user};
+                        channel.users[auth.getId].client.setActivity();
                         wss.sendAll({uuid: '', username: ''}, `${user.getUsername} has joined.`, 'SystemMessage');
                     });
                     break;
