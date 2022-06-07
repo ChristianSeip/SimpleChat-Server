@@ -63,19 +63,12 @@ wss.on('connection', function connection(ws) {
                 case 'SendMessage':
                     break;
                 case 'JoinChannel':
-                        user.getUserById(data.data.uuid).then(() => {
-                            user.isValidSession(data.data.sid).then((valid) => {
-                                console.log(valid)
-                                if(valid) {
-                                    user.setActivity();
-                                    channel.users[user.getId] = {socket: ws, client: user}
-                                    wss.sendAll(`${user.getUsername} has joined.`);
-                                }
-                                else {
-                                    ws.terminate()
-                                }
-                            });
-                        });
+                    wss.auth(data.data).then((user) => {
+                        if(user === null) { ws.terminate(); return; }
+                        user.setActivity();
+                        channel.users[user.getId] = {socket: ws, client: user};
+                        wss.sendAll({uuid: '', username: ''}, `${user.getUsername} has joined.`, 'SystemMessage');
+                    });
                     break;
                 }
         }
@@ -85,10 +78,43 @@ wss.on('connection', function connection(ws) {
     });
 });
 
-wss.sendAll = function (msg) {
-    Object.keys(channel.users).forEach((key) => {
-        if(channel.users[key].socket.readyState === WebSocket.OPEN) {
-            channel.users[key].socket.send(JSON.stringify({event: 'PublicSystemMessage', data: {msg: msg}}));
+/**
+ * Send Message to all connected chat users.
+ *
+ * @param {{}} sender
+ * @param {string} msg
+ * @param {string} type
+ * @returns {Promise<void>}
+ */
+wss.sendAll = async function (sender, msg, type) {
+    let json = JSON.stringify({
+        event: type,
+        data: {
+            sender: sender,
+            msg: msg,
         }
     });
+    Object.keys(channel.users).forEach((key) => {
+        if(channel.users[key].socket.readyState === WebSocket.OPEN) {
+            channel.users[key].socket.send(json);
+        }
+    });
+}
+
+/**
+ * Authenticate the user. Returns null if authentification failed.
+ *
+ * @param {{}} data
+ * @returns {Promise<null|User>}
+ */
+wss.auth = async function (data) {
+    if ('uuid' in data && 'sid' in data) {
+        let user = new User();
+        if (await user.getUserById(data.uuid)) {
+            if(await user.isValidSession(data.sid)) {
+                return user;
+            }
+        }
+    }
+    return null;
 }
