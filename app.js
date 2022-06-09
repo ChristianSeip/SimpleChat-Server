@@ -53,29 +53,38 @@ wss.on('connection', function connection(ws) {
                         ws.send(JSON.stringify(response));
                     });
                     break;
+                case 'Logout':
+                    wss.auth(data.data).then((auth) => {
+                        if(auth === null) return;
+                        channel.users[auth.getId].client.setActivity();
+                        disconnectUser(auth.getId);
+                    });
+                    break;
                 case 'NameAvailabilityCheck':
                     User.isNameAvailable(data.data.username).then((response) => {
                         ws.send(JSON.stringify({event: 'NameAvailabilityCheck', data: {success: response}}));
                     });
                     break;
-                case 'GetProfile':
-                    break;
                 case 'SendMessage':
+                    if(!('msg' in data.data)) return;
                     wss.auth(data.data).then((auth) => {
-                        if(auth === null) { ws.terminate(); return; }
+                        if(auth === null) return;
                         channel.users[auth.getId].client.setActivity();
-                        // TODO: Send Message
+                        wss.sendAll({uuid: auth.getId, username: auth.getUsername, msg: data.data.msg, type: 'PublicMessage'}, 'MessageReceived');
                     });
                     break;
                 case 'JoinChannel':
                     wss.auth(data.data).then((user) => {
-                        if(user === null) { ws.terminate(); return; }
+                        if(user === null) return;
                         channel.users[user.getId] = {socket: ws, client: user};
-                        channel.users[auth.getId].client.setActivity();
-                        wss.sendAll({uuid: '', username: ''}, `${user.getUsername} has joined.`, 'SystemMessage');
+                        channel.users[user.getId].client.setActivity();
+                        wss.sendAll({uuid: user.getId, username: user.getUsername, age: user.getAge, lastActivity: user.getLastActivity}, 'UserJoined');
+                        wss.sendAll({uuid: '0', username: '***', msg: `${user.getUsername} has joined.`, type: 'SystemMessage'}, 'MessageReceived').then(() => {
+                            ws.send(JSON.stringify({event: 'InitChat', data: {channelname: channel.name, users: getChannelUsers()}}));
+                        });
                     });
                     break;
-                }
+            }
         }
         catch (e) {
             console.log(`Invalid incoming data: ${data}, Error: ${e}`);
@@ -86,18 +95,14 @@ wss.on('connection', function connection(ws) {
 /**
  * Send Message to all connected chat users.
  *
- * @param {{}} sender
- * @param {string} msg
- * @param {string} type
+ * @param {{}} obj
+ * @param {string} event
  * @returns {Promise<void>}
  */
-wss.sendAll = async function (sender, msg, type) {
+wss.sendAll = async function (obj, event) {
     let json = JSON.stringify({
-        event: type,
-        data: {
-            sender: sender,
-            msg: msg,
-        }
+        event: event,
+        data: obj,
     });
     Object.keys(channel.users).forEach((key) => {
         if(channel.users[key].socket.readyState === WebSocket.OPEN) {
@@ -123,3 +128,49 @@ wss.auth = async function (data) {
     }
     return null;
 }
+
+/**
+ * Get list of online users
+ *
+ * @returns {[]}
+ */
+getChannelUsers = function () {
+    let list = [];
+    Object.keys(channel.users).forEach((key) => {
+        if(channel.users[key].socket.readyState === WebSocket.OPEN) {
+            list.push({
+                uuid: key,
+                username: channel.users[key].client.getUsername,
+                age: channel.users[key].client.getAge,
+                lastActivity: channel.users[key].client.getLastActivity,
+            });
+        }
+    });
+    return list;
+}
+
+/**
+ * Disconnect inactive users.
+ */
+checkUserConnections = function () {
+    Object.keys(channel.users).forEach((key, index) => {
+        let u = channel.users[key];
+        if(u.client.isInactive() || u.socket.readyState !== WebSocket.OPEN) {
+            disconnectUser(key);
+        }
+    });
+}
+
+/**
+ * Disconnect user.
+ *
+ * @param uuid
+ */
+disconnectUser = function (uuid) {
+    channel.users[uuid].client.destroySession();
+    wss.sendAll({uuid: '0', username: '***', msg: `${channel.users[uuid].client.getUsername} left.`, type: 'SystemMessage'}, 'MessageReceived');
+    wss.sendAll({uuid: channel.users[uuid].client.getId}, 'UserLeft');
+    delete channel.users[uuid];
+}
+
+setInterval(checkUserConnections, 10000);
