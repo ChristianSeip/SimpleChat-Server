@@ -1,7 +1,10 @@
-const express = require('express');
-const http = require('http');
+const fs = require("fs");
+const https = require('https');
+const server = https.createServer({
+    key: fs.readFileSync(process.env.SSL_KEY),
+    cert: fs.readFileSync(process.env.SSL_CERT)
+});
 const WebSocket = require('ws');
-const server = http.createServer(express);
 const wss = new WebSocket.Server({server})
 const Database = require('./lib/db/database');
 const User = require('./lib/user/user');
