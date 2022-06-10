@@ -73,7 +73,7 @@ wss.on('connection', function connection(ws) {
                     wss.auth(data.data).then((auth) => {
                         if(auth === null) return;
                         channel.users[auth.getId].client.setActivity();
-                        wss.sendAll({uuid: auth.getId, username: auth.getUsername, msg: data.data.msg, type: 'PublicMessage'}, 'MessageReceived');
+                        wss.sendAll({uuid: auth.getId, username: auth.getUsername, msg: data.data.msg, type: 'PublicMessage', timestamp: Date.now()}, 'MessageReceived');
                     });
                     break;
                 case 'JoinChannel':
